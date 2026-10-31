@@ -1,0 +1,883 @@
+// ==========================================
+// MINI MEET - MAIN APPLICATION
+// ==========================================
+
+const { createClient } = supabase;
+
+const db = createClient(
+  window.APP_CONFIG.SUPABASE_URL,
+  window.APP_CONFIG.SUPABASE_PUBLISHABLE_KEY
+);
+
+let currentMeet = null;
+let swimmers = [];
+let events = [];
+let entries = [];
+let results = [];
+let heatSheets = [];
+
+// ==========================================
+// HELPERS
+// ==========================================
+
+const $ = (id) => document.getElementById(id);
+
+function message(id, text, error = false) {
+  const element = $(id);
+  if (!element) return;
+
+  element.textContent = text;
+  element.style.color = error ? "#c0392b" : "#2674b8";
+}
+
+function showModal(id) {
+  $(id).classList.remove("hidden");
+}
+
+function hideModal(id) {
+  $(id).classList.add("hidden");
+}
+
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, character => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  })[character]);
+}
+
+function parseTime(value) {
+  const parts = String(value).trim().split(":");
+
+  if (parts.length === 1) {
+    const seconds = Number(parts[0]);
+    return Number.isFinite(seconds) ? seconds : NaN;
+  }
+
+  if (parts.length === 2) {
+    const minutes = Number(parts[0]);
+    const seconds = Number(parts[1]);
+
+    if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) {
+      return NaN;
+    }
+
+    return minutes * 60 + seconds;
+  }
+
+  if (parts.length === 3) {
+    const hours = Number(parts[0]);
+    const minutes = Number(parts[1]);
+    const seconds = Number(parts[2]);
+
+    if (![hours, minutes, seconds].every(Number.isFinite)) {
+      return NaN;
+    }
+
+    return hours * 3600 + minutes * 60 + seconds;
+  }
+
+  return NaN;
+}
+
+function formatTime(seconds) {
+  const minutes = Math.floor(seconds / 60);
+  const remaining = (seconds % 60).toFixed(2).padStart(5, "0");
+
+  if (minutes > 0) {
+    return `${minutes}:${remaining}`;
+  }
+
+  return remaining;
+}
+
+function setOptions(element, items, placeholder) {
+  if (!element) return;
+
+  const previous = element.value;
+
+  element.innerHTML =
+    `<option value="">${escapeHTML(placeholder)}</option>` +
+    items.map(item =>
+      `<option value="${escapeHTML(item.value)}">${escapeHTML(item.label)}</option>`
+    ).join("");
+
+  if (items.some(item => String(item.value) === previous)) {
+    element.value = previous;
+  }
+}
+
+function getSwimmer(id) {
+  return swimmers.find(swimmer => swimmer.id === id);
+}
+
+function getEvent(id) {
+  return events.find(event => event.id === id);
+}
+
+function getEntry(id) {
+  return entries.find(entry => entry.id === id);
+}
+
+// ==========================================
+// PUBLIC WEBSITE
+// ==========================================
+
+async function loadPublic() {
+  message("public-message", "Loading meet information...");
+
+  try {
+    const { data: meets, error } = await db
+      .from("meets")
+      .select("*")
+      .eq("is_published", true)
+      .order("meet_date", { ascending: false });
+
+    if (error) throw error;
+
+    if (!meets || meets.length === 0) {
+      $("meet-title").textContent = "No published meet";
+      $("meet-date").textContent = "Please check again later.";
+      message("public-message", "");
+      return;
+    }
+
+    currentMeet = meets[0];
+
+    $("meet-title").textContent = currentMeet.name;
+    $("meet-date").textContent = new Date(
+      currentMeet.meet_date + "T12:00:00"
+    ).toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "long",
+      year: "numeric"
+    });
+
+    await loadMeetData();
+
+    message("public-message", "");
+
+  } catch (error) {
+    console.error(error);
+    message(
+      "public-message",
+      "Unable to load results. Please refresh the page.",
+      true
+    );
+  }
+}
+
+async function loadMeetData() {
+  if (!currentMeet) return;
+
+  const [eventResponse, entryResponse, swimmerResponse, sheetResponse] =
+    await Promise.all([
+      db.from("events")
+        .select("*")
+        .eq("meet_id", currentMeet.id)
+        .order("event_number"),
+
+      db.from("entries")
+        .select("*")
+        .eq("status", "accepted"),
+
+      db.from("swimmers")
+        .select("*"),
+
+      db.from("heat_sheets")
+        .select("*")
+        .eq("meet_id", currentMeet.id)
+        .eq("is_published", true)
+    ]);
+
+  if (eventResponse.error) throw eventResponse.error;
+  if (entryResponse.error) throw entryResponse.error;
+  if (swimmerResponse.error) throw swimmerResponse.error;
+  if (sheetResponse.error) throw sheetResponse.error;
+
+  events = eventResponse.data || [];
+
+  const eventIds = new Set(events.map(event => event.id));
+
+  entries = (entryResponse.data || []).filter(entry =>
+    eventIds.has(entry.event_id)
+  );
+
+  const swimmerIds = new Set(entries.map(entry => entry.swimmer_id));
+
+  swimmers = (swimmerResponse.data || []).filter(swimmer =>
+    swimmerIds.has(swimmer.id)
+  );
+
+  heatSheets = sheetResponse.data || [];
+
+  const entryIds = entries.map(entry => entry.id);
+
+  if (entryIds.length > 0) {
+    const { data, error } = await db
+      .from("results")
+      .select("*")
+      .in("entry_id", entryIds)
+      .eq("is_published", true);
+
+    if (error) throw error;
+
+    results = data || [];
+  } else {
+    results = [];
+  }
+
+  renderPublic();
+}
+
+// ==========================================
+// RENDER PUBLIC RESULTS
+// ==========================================
+
+function renderPublic() {
+  renderFilters();
+  renderResults();
+  renderRankings();
+  renderSwimmers();
+  renderHeatSheets();
+}
+
+function renderFilters() {
+  const eventOptions = events.map(event => ({
+    value: event.id,
+    label: `Event ${event.event_number} – ${event.event_name}`
+  }));
+
+  const ageGroups = [...new Set(swimmers.map(s => s.age_group))].sort();
+
+  const ageOptions = ageGroups.map(age => ({
+    value: age,
+    label: age
+  }));
+
+  setOptions($("event-filter"), eventOptions, "All events");
+  setOptions($("ranking-event-filter"), eventOptions, "All events");
+  setOptions($("age-filter"), ageOptions, "All age groups");
+  setOptions($("ranking-age-filter"), ageOptions, "All age groups");
+}
+
+function renderResults() {
+  const search = $("swimmer-search").value.toLowerCase();
+  const eventFilter = $("event-filter").value;
+  const ageFilter = $("age-filter").value;
+
+  let displayed = results.map(result => {
+    const entry = getEntry(result.entry_id);
+    if (!entry) return null;
+
+    const swimmer = getSwimmer(entry.swimmer_id);
+    const event = getEvent(entry.event_id);
+
+    if (!swimmer || !event) return null;
+
+    return { result, entry, swimmer, event };
+  }).filter(Boolean);
+
+  displayed = displayed.filter(item => {
+    return (
+      item.swimmer.full_name.toLowerCase().includes(search) &&
+      (!eventFilter || item.event.id === eventFilter) &&
+      (!ageFilter || item.swimmer.age_group === ageFilter)
+    );
+  });
+
+  displayed.sort((a, b) => {
+    if (a.event.event_number !== b.event.event_number) {
+      return a.event.event_number - b.event.event_number;
+    }
+
+    return (a.result.position || 999) - (b.result.position || 999);
+  });
+
+  $("results-count").textContent =
+    `${displayed.length} result${displayed.length === 1 ? "" : "s"}`;
+
+  if (displayed.length === 0) {
+    $("results-list").innerHTML =
+      '<div class="empty-state">No published results found.</div>';
+    return;
+  }
+
+  $("results-list").innerHTML = displayed.map(item => `
+    <article class="result-card">
+      <div>
+        <h3>${escapeHTML(item.swimmer.full_name)}</h3>
+        <p>${escapeHTML(item.event.event_name)}</p>
+        <p>${escapeHTML(item.swimmer.age_group)}</p>
+        <span class="position">
+          ${item.result.position ? `Position ${item.result.position}` : ""}
+        </span>
+      </div>
+      <div class="result-time">
+        ${escapeHTML(item.result.time_display)}
+      </div>
+    </article>
+  `).join("");
+}
+
+function renderRankings() {
+  const ageFilter = $("ranking-age-filter").value;
+  const eventFilter = $("ranking-event-filter").value;
+
+  let displayed = results.map(result => {
+    const entry = getEntry(result.entry_id);
+    if (!entry) return null;
+
+    const swimmer = getSwimmer(entry.swimmer_id);
+    const event = getEvent(entry.event_id);
+
+    if (!swimmer || !event) return null;
+
+    return { result, entry, swimmer, event };
+  }).filter(Boolean);
+
+  displayed = displayed.filter(item =>
+    (!ageFilter || item.swimmer.age_group === ageFilter) &&
+    (!eventFilter || item.event.id === eventFilter)
+  );
+
+  displayed.sort((a, b) =>
+    a.result.time_seconds - b.result.time_seconds
+  );
+
+  if (displayed.length === 0) {
+    $("rankings-list").innerHTML =
+      '<div class="empty-state">No rankings available yet.</div>';
+    return;
+  }
+
+  $("rankings-list").innerHTML = displayed.map((item, index) => `
+    <article class="ranking-card">
+      <h3>${index + 1}. ${escapeHTML(item.swimmer.full_name)}</h3>
+      <p>${escapeHTML(item.swimmer.age_group)} · ${escapeHTML(item.event.event_name)}</p>
+      <p><strong>${escapeHTML(item.result.time_display)}</strong></p>
+    </article>
+  `).join("");
+}
+
+function renderSwimmers() {
+  const search = $("swimmer-search").value.toLowerCase();
+
+  const displayed = swimmers.filter(swimmer =>
+    swimmer.full_name.toLowerCase().includes(search)
+  );
+
+  $("swimmers-count").textContent =
+    `${displayed.length} swimmer${displayed.length === 1 ? "" : "s"}`;
+
+  if (displayed.length === 0) {
+    $("swimmers-list").innerHTML =
+      '<div class="empty-state">No swimmers found.</div>';
+    return;
+  }
+
+  $("swimmers-list").innerHTML = displayed
+    .sort((a, b) => a.full_name.localeCompare(b.full_name))
+    .map(swimmer => {
+      const swimmerEntries = entries.filter(entry =>
+        entry.swimmer_id === swimmer.id
+      );
+
+      return `
+        <article class="swimmer-card">
+          <h3>${escapeHTML(swimmer.full_name)}</h3>
+          <p>${escapeHTML(swimmer.age_group)}</p>
+          <p>${swimmerEntries.length} accepted event entries</p>
+        </article>
+      `;
+    }).join("");
+}
+
+function renderHeatSheets() {
+  if (heatSheets.length === 0) {
+    $("heat-sheets-list").innerHTML =
+      '<div class="empty-state">No heat sheets have been published yet.</div>';
+    return;
+  }
+
+  $("heat-sheets-list").innerHTML = heatSheets.map(sheet => {
+    const { data } = db.storage
+      .from("heat-sheets")
+      .getPublicUrl(sheet.file_path);
+
+    return `
+      <article class="heat-card">
+        <h3>${escapeHTML(sheet.title)}</h3>
+        <p>Official meet document</p>
+        <a href="${escapeHTML(data.publicUrl)}" target="_blank" rel="noopener">
+          Open document
+        </a>
+      </article>
+    `;
+  }).join("");
+}
+
+// ==========================================
+// PUBLIC SEARCH AND FILTERS
+// ==========================================
+
+$("swimmer-search").addEventListener("input", () => {
+  renderResults();
+  renderSwimmers();
+});
+
+$("search-clear").addEventListener("click", () => {
+  $("swimmer-search").value = "";
+  renderResults();
+  renderSwimmers();
+});
+
+$("event-filter").addEventListener("change", renderResults);
+$("age-filter").addEventListener("change", renderResults);
+$("ranking-age-filter").addEventListener("change", renderRankings);
+$("ranking-event-filter").addEventListener("change", renderRankings);
+
+// ==========================================
+// TABS
+// ==========================================
+
+document.querySelectorAll(".tab").forEach(button => {
+  button.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(tab =>
+      tab.classList.remove("active")
+    );
+
+    document.querySelectorAll(".content-section").forEach(section =>
+      section.classList.remove("active")
+    );
+
+    button.classList.add("active");
+    $(button.dataset.tab).classList.add("active");
+  });
+});
+
+// ==========================================
+// ADMIN LOGIN
+// ==========================================
+
+$("admin-open").addEventListener("click", async () => {
+  const { data } = await db.auth.getSession();
+
+  if (data.session) {
+    await checkAdmin(data.session.user);
+  } else {
+    showModal("login-modal");
+  }
+});
+
+document.querySelectorAll("[data-close]").forEach(button => {
+  button.addEventListener("click", () => {
+    hideModal(button.dataset.close);
+  });
+});
+
+$("login-form").addEventListener("submit", async event => {
+  event.preventDefault();
+
+  message("login-message", "Signing in...");
+
+  const email = $("login-email").value.trim();
+  const password = $("login-password").value;
+
+  const { data, error } = await db.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if (error) {
+    message("login-message", error.message, true);
+    return;
+  }
+
+  await checkAdmin(data.user);
+});
+
+async function checkAdmin(user) {
+  const { data, error } = await db
+    .from("admin_users")
+    .select("user_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (error || !data) {
+    await db.auth.signOut();
+    message(
+      "login-message",
+      "This account is not authorised as an administrator.",
+      true
+    );
+    return;
+  }
+
+  hideModal("login-modal");
+  showModal("admin-modal");
+
+  message("admin-message", "Administrator access confirmed.");
+
+  await loadAdminData();
+}
+
+$("admin-logout").addEventListener("click", async () => {
+  await db.auth.signOut();
+  hideModal("admin-modal");
+  message("admin-message", "You have signed out.");
+});
+
+// ==========================================
+// ADMIN DATA
+// ==========================================
+
+async function loadAdminData() {
+  const [meetResponse, swimmerResponse, eventResponse, entryResponse] =
+    await Promise.all([
+      db.from("meets")
+        .select("*")
+        .order("meet_date", { ascending: false }),
+
+      db.from("swimmers").select("*").order("full_name"),
+
+      db.from("events").select("*").order("event_number"),
+
+      db.from("entries").select("*")
+    ]);
+
+  if (meetResponse.error) throw meetResponse.error;
+  if (swimmerResponse.error) throw swimmerResponse.error;
+  if (eventResponse.error) throw eventResponse.error;
+  if (entryResponse.error) throw entryResponse.error;
+
+  swimmers = swimmerResponse.data || [];
+  events = eventResponse.data || [];
+  entries = entryResponse.data || [];
+
+  if (currentMeet) {
+    const matchingMeet = (meetResponse.data || []).find(
+      meet => meet.id === currentMeet.id
+    );
+
+    if (matchingMeet) currentMeet = matchingMeet;
+  }
+
+  if (!currentMeet && meetResponse.data.length > 0) {
+    currentMeet = meetResponse.data[0];
+  }
+
+  if (currentMeet) {
+    $("meet-name-input").value = currentMeet.name;
+    $("meet-date-input").value = currentMeet.meet_date;
+    $("meet-published").checked = currentMeet.is_published;
+  }
+
+  populateAdminSelects();
+}
+
+function populateAdminSelects() {
+  const swimmerOptions = swimmers.map(swimmer => ({
+    value: swimmer.id,
+    label: `${swimmer.full_name} (${swimmer.age_group})`
+  }));
+
+  const eventOptions = events
+    .filter(event => currentMeet && event.meet_id === currentMeet.id)
+    .map(event => ({
+      value: event.id,
+      label: `Event ${event.event_number} – ${event.event_name}`
+    }));
+
+  const entryOptions = entries
+    .filter(entry => {
+      const event = getEvent(entry.event_id);
+      return event && currentMeet && event.meet_id === currentMeet.id;
+    })
+    .map(entry => {
+      const swimmer = getSwimmer(entry.swimmer_id);
+      const event = getEvent(entry.event_id);
+
+      return {
+        value: entry.id,
+        label: `${swimmer?.full_name || "Unknown"} – ${event?.event_name || "Unknown"} – Heat ${entry.heat_number}, Lane ${entry.lane_number}`
+      };
+    });
+
+  setOptions($("entry-swimmer-input"), swimmerOptions, "Select swimmer");
+  setOptions($("entry-event-input"), eventOptions, "Select event");
+  setOptions($("result-entry-input"), entryOptions, "Select entry");
+}
+
+// ==========================================
+// SAVE MEET
+// ==========================================
+
+$("meet-form").addEventListener("submit", async event => {
+  event.preventDefault();
+
+  message("admin-message", "Saving meet...");
+
+  const meetData = {
+    name: $("meet-name-input").value.trim(),
+    meet_date: $("meet-date-input").value,
+    is_published: $("meet-published").checked
+  };
+
+  let response;
+
+  if (currentMeet) {
+    response = await db.from("meets")
+      .update(meetData)
+      .eq("id", currentMeet.id)
+      .select()
+      .single();
+  } else {
+    response = await db.from("meets")
+      .insert(meetData)
+      .select()
+      .single();
+  }
+
+  if (response.error) {
+    message("admin-message", response.error.message, true);
+    return;
+  }
+
+  currentMeet = response.data;
+
+  message("admin-message", "Meet saved successfully.");
+
+  await loadPublic();
+  await loadAdminData();
+});
+
+// ==========================================
+// ADD SWIMMER
+// ==========================================
+
+$("swimmer-form").addEventListener("submit", async event => {
+  event.preventDefault();
+
+  const fullName = $("swimmer-name-input").value.trim();
+  const ageGroup = $("swimmer-age-input").value.trim();
+
+  const { data, error } = await db.from("swimmers")
+    .insert({
+      full_name: fullName,
+      age_group: ageGroup
+    })
+    .select()
+    .single();
+
+  if (error) {
+    message("admin-message", error.message, true);
+    return;
+  }
+
+  $("swimmer-form").reset();
+
+  message("admin-message", `${data.full_name} added successfully.`);
+
+  await loadAdminData();
+  await loadPublic();
+});
+
+// ==========================================
+// ADD EVENT
+// ==========================================
+
+$("event-form").addEventListener("submit", async event => {
+  event.preventDefault();
+
+  if (!currentMeet) {
+    message("admin-message", "Create a meet first.", true);
+    return;
+  }
+
+  const eventData = {
+    meet_id: currentMeet.id,
+    event_number: Number($("event-number-input").value),
+    event_name: $("event-name-input").value.trim(),
+    distance: Number($("event-distance-input").value),
+    stroke: $("event-stroke-input").value
+  };
+
+  const { error } = await db.from("events").insert(eventData);
+
+  if (error) {
+    message("admin-message", error.message, true);
+    return;
+  }
+
+  $("event-form").reset();
+
+  message("admin-message", "Event added successfully.");
+
+  await loadAdminData();
+  await loadPublic();
+});
+
+// ==========================================
+// ADD ENTRY
+// ==========================================
+
+$("entry-form").addEventListener("submit", async event => {
+  event.preventDefault();
+
+  const entryData = {
+    swimmer_id: $("entry-swimmer-input").value,
+    event_id: $("entry-event-input").value,
+    heat_number: Number($("entry-heat-input").value),
+    lane_number: Number($("entry-lane-input").value),
+    entry_time: $("entry-time-input").value.trim() || null,
+    status: "accepted"
+  };
+
+  const { error } = await db.from("entries").insert(entryData);
+
+  if (error) {
+    message("admin-message", error.message, true);
+    return;
+  }
+
+  $("entry-form").reset();
+
+  message("admin-message", "Swimmer added to event.");
+
+  await loadAdminData();
+  await loadPublic();
+});
+
+// ==========================================
+// ENTER RESULT
+// ==========================================
+
+$("result-form").addEventListener("submit", async event => {
+  event.preventDefault();
+
+  const entryId = $("result-entry-input").value;
+  const timeDisplay = $("result-time-input").value.trim();
+  const timeSeconds = parseTime(timeDisplay);
+
+  if (!entryId || !Number.isFinite(timeSeconds) || timeSeconds < 0) {
+    message("admin-message", "Enter a valid race time.", true);
+    return;
+  }
+
+  const positionValue = $("result-position-input").value;
+
+  const resultData = {
+    entry_id: entryId,
+    time_seconds: timeSeconds,
+    time_display: formatTime(timeSeconds),
+    position: positionValue ? Number(positionValue) : null,
+    is_published: $("result-published-input").checked
+  };
+
+  const { error } = await db.from("results")
+    .upsert(resultData, { onConflict: "entry_id" });
+
+  if (error) {
+    message("admin-message", error.message, true);
+    return;
+  }
+
+  $("result-form").reset();
+
+  message("admin-message", "Result saved successfully.");
+
+  await loadPublic();
+});
+
+// ==========================================
+// UPLOAD HEAT SHEET
+// ==========================================
+
+$("heat-sheet-form").addEventListener("submit", async event => {
+  event.preventDefault();
+
+  if (!currentMeet) {
+    message("admin-message", "Create a meet first.", true);
+    return;
+  }
+
+  const file = $("heat-sheet-file-input").files[0];
+
+  if (!file) {
+    message("admin-message", "Choose a file first.", true);
+    return;
+  }
+
+  const allowedExtensions = /\.(pdf|xls|xlsx|csv)$/i;
+
+  if (!allowedExtensions.test(file.name)) {
+    message("admin-message", "Please choose a PDF, Excel or CSV file.", true);
+    return;
+  }
+
+  if (file.size > 15 * 1024 * 1024) {
+    message("admin-message", "The file must be smaller than 15 MB.", true);
+    return;
+  }
+
+  message("admin-message", "Uploading document...");
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const filePath = `${currentMeet.id}/${Date.now()}-${safeName}`;
+
+  const { error: uploadError } = await db.storage
+    .from("heat-sheets")
+    .upload(filePath, file);
+
+  if (uploadError) {
+    message("admin-message", uploadError.message, true);
+    return;
+  }
+
+  const { error: recordError } = await db.from("heat_sheets")
+    .insert({
+      meet_id: currentMeet.id,
+      title: $("heat-sheet-title-input").value.trim(),
+      file_path: filePath,
+      is_published: $("heat-sheet-published-input").checked
+    });
+
+  if (recordError) {
+    message(
+      "admin-message",
+      `File uploaded but its record could not be saved: ${recordError.message}`,
+      true
+    );
+    return;
+  }
+
+  $("heat-sheet-form").reset();
+
+  message("admin-message", "Heat sheet uploaded successfully.");
+
+  await loadPublic();
+});
+
+// ==========================================
+// INITIAL PAGE LOAD
+// ==========================================
+
+async function startApp() {
+  try {
+    await loadPublic();
+
+    const { data } = await db.auth.getSession();
+
+    if (data.session) {
+      await checkAdmin(data.session.user);
+    }
+  } catch (error) {
+    console.error(error);
+    message("public-message", error.message, true);
+  }
+}
+
+startApp();
