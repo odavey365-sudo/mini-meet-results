@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mini Meet Live Results</title>
+
+<style>
+body{
+font-family:Arial,sans-serif;
+margin:0;
+background:#f5f7fa;
+}
+
+header{
+background:#003366;
+color:white;
+padding:15px;
+text-align:center;
+}
+
+.container{
+max-width:1200px;
+margin:auto;
+padding:15px;
+}
+
+.card{
+background:white;
+padding:15px;
+margin-bottom:15px;
+border-radius:10px;
+box-shadow:0 2px 6px rgba(0,0,0,.1);
+}
+
+input,select{
+padding:8px;
+width:100%;
+margin:5px 0;
+}
+
+button{
+background:#003366;
+color:white;
+border:none;
+padding:10px;
+cursor:pointer;
+border-radius:5px;
+}
+
+table{
+width:100%;
+border-collapse:collapse;
+}
+
+th,td{
+padding:8px;
+border-bottom:1px solid #ddd;
+}
+
+.hidden{
+display:none;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+<h1>🏊 Mini Meet Live Results</h1>
+<p>31 October 2026</p>
+</header>
+
+<div class="container">
+
+<div class="card">
+<input id="search" placeholder="Search swimmer..." onkeyup="searchSwimmer()">
+</div>
+
+<div class="card">
+<h2>Results Entry</h2>
+
+<select id="event">
+<option>50m Backstroke</option>
+<option>50m Butterfly</option>
+<option>50m Breaststroke</option>
+<option>50m Freestyle</option>
+<option>100m IM</option>
+</select>
+
+<input id="swimmer" placeholder="Swimmer name">
+<input id="time" placeholder="Time e.g. 42.31">
+
+<button onclick="addResult()">Add Result</button>
+</div>
+
+<div class="card">
+<h2>Live Results</h2>
+
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Swimmer</th>
+<th>Time</th>
+</tr>
+</thead>
+
+<tbody id="resultsTable">
+</tbody>
+
+</table>
+</div>
+
+<div class="card">
+<h2>Heat Sheets</h2>
+
+<table id="heatTable">
+<tr>
+<td>Joseph West</td>
+<td>50m Backstroke</td>
+</tr>
+
+<tr>
+<td>Joseph West</td>
+<td>50m Butterfly</td>
+</tr>
+
+<tr>
+<td>Joseph West</td>
+<td>50m Breaststroke</td>
+</tr>
+</table>
+
+</div>
+
+</div>
+
+<script>
+
+let results =
+JSON.parse(localStorage.getItem("results") || "[]");
+
+function render(){
+
+let html="";
+
+results.forEach(r=>{
+
+html += `
+<tr>
+<td>${r.event}</td>
+<td>${r.swimmer}</td>
+<td>${r.time}</td>
+</tr>`;
+});
+
+document.getElementById("resultsTable").innerHTML=html;
+}
+
+function addResult(){
+
+let result={
+event:document.getElementById("event").value,
+swimmer:document.getElementById("swimmer").value,
+time:document.getElementById("time").value
+};
+
+results.push(result);
+
+localStorage.setItem(
+"results",
+JSON.stringify(results)
+);
+
+render();
+
+document.getElementById("swimmer").value="";
+document.getElementById("time").value="";
+}
+
+function searchSwimmer(){
+
+let filter=
+document.getElementById("search")
+.value.toUpperCase();
+
+let rows=
+document.querySelectorAll(
+"#resultsTable tr"
+);
+
+rows.forEach(row=>{
+
+row.style.display=
+row.textContent.toUpperCase()
+.includes(filter)
+? ""
+: "none";
+
+});
+}
+
+render();
+
+</script>
+
+</body>
+</html>
