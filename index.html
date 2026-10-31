@@ -1,209 +1,346 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mini Meet Live Results</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10243a">
+  <title>Mini Meet | Swimming Results</title>
 
-<style>
-body{
-font-family:Arial,sans-serif;
-margin:0;
-background:#f5f7fa;
-}
+  <link rel="stylesheet" href="styles.css">
 
-header{
-background:#003366;
-color:white;
-padding:15px;
-text-align:center;
-}
-
-.container{
-max-width:1200px;
-margin:auto;
-padding:15px;
-}
-
-.card{
-background:white;
-padding:15px;
-margin-bottom:15px;
-border-radius:10px;
-box-shadow:0 2px 6px rgba(0,0,0,.1);
-}
-
-input,select{
-padding:8px;
-width:100%;
-margin:5px 0;
-}
-
-button{
-background:#003366;
-color:white;
-border:none;
-padding:10px;
-cursor:pointer;
-border-radius:5px;
-}
-
-table{
-width:100%;
-border-collapse:collapse;
-}
-
-th,td{
-padding:8px;
-border-bottom:1px solid #ddd;
-}
-
-.hidden{
-display:none;
-}
-</style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="app.js" defer></script>
 </head>
 
 <body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="#">
+        <span class="brand-mark">M</span>
+        <span>MINI MEET<small>LIVE SWIMMING RESULTS</small></span>
+      </a>
+      <button id="admin-open" class="button button-outline" type="button">
+        Admin login
+      </button>
+    </div>
+  </header>
 
-<header>
-<h1>🏊 Mini Meet Live Results</h1>
-<p>31 October 2026</p>
-</header>
+  <main class="container">
 
-<div class="container">
+    <section class="hero">
+      <p class="eyebrow">MEET INFORMATION</p>
+      <h1 id="meet-title">Swimming results</h1>
+      <p id="meet-date" class="muted">Live results and heat sheets</p>
+      <div class="live-indicator">
+        <span class="live-dot"></span>
+        Refresh this page to see published updates
+      </div>
+    </section>
 
-<div class="card">
-<input id="search" placeholder="Search swimmer..." onkeyup="searchSwimmer()">
-</div>
+    <section class="search-panel">
+      <label for="swimmer-search">Find a swimmer</label>
+      <div class="search-row">
+        <input
+          id="swimmer-search"
+          type="search"
+          placeholder="Search swimmer's name..."
+          autocomplete="off"
+        >
+        <button id="search-clear" class="button button-light" type="button">
+          Clear
+        </button>
+      </div>
+    </section>
 
-<div class="card">
-<h2>Results Entry</h2>
+    <nav class="tabs" aria-label="Meet sections">
+      <button class="tab active" data-tab="results" type="button">Results</button>
+      <button class="tab" data-tab="rankings" type="button">Age groups</button>
+      <button class="tab" data-tab="swimmers" type="button">Swimmers</button>
+      <button class="tab" data-tab="heats" type="button">Heat sheets</button>
+    </nav>
 
-<select id="event">
-<option>50m Backstroke</option>
-<option>50m Butterfly</option>
-<option>50m Breaststroke</option>
-<option>50m Freestyle</option>
-<option>100m IM</option>
-</select>
+    <section id="results" class="content-section active">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">RACE TIMES</p>
+          <h2>Results</h2>
+        </div>
+        <span id="results-count" class="count-label">0 results</span>
+      </div>
 
-<input id="swimmer" placeholder="Swimmer name">
-<input id="time" placeholder="Time e.g. 42.31">
+      <div class="filters">
+        <select id="event-filter">
+          <option value="">All events</option>
+        </select>
+        <select id="age-filter">
+          <option value="">All age groups</option>
+        </select>
+      </div>
 
-<button onclick="addResult()">Add Result</button>
-</div>
+      <div id="results-list" class="card-list">
+        <div class="empty-state">Published results will appear here.</div>
+      </div>
+    </section>
 
-<div class="card">
-<h2>Live Results</h2>
+    <section id="rankings" class="content-section">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">LEADERBOARD</p>
+          <h2>Age-group rankings</h2>
+        </div>
+      </div>
 
-<table>
-<thead>
-<tr>
-<th>Event</th>
-<th>Swimmer</th>
-<th>Time</th>
-</tr>
-</thead>
+      <div class="filters">
+        <select id="ranking-age-filter">
+          <option value="">All age groups</option>
+        </select>
+        <select id="ranking-event-filter">
+          <option value="">All events</option>
+        </select>
+      </div>
 
-<tbody id="resultsTable">
-</tbody>
+      <div id="rankings-list" class="card-list">
+        <div class="empty-state">Rankings will appear once results are published.</div>
+      </div>
+    </section>
 
-</table>
-</div>
+    <section id="swimmers" class="content-section">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">COMPETITOR DIRECTORY</p>
+          <h2>Swimmers</h2>
+        </div>
+        <span id="swimmers-count" class="count-label">0 swimmers</span>
+      </div>
 
-<div class="card">
-<h2>Heat Sheets</h2>
+      <div id="swimmers-list" class="card-list">
+        <div class="empty-state">Swimmers will appear here once entries are available.</div>
+      </div>
+    </section>
 
-<table id="heatTable">
-<tr>
-<td>Joseph West</td>
-<td>50m Backstroke</td>
-</tr>
+    <section id="heats" class="content-section">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">RACE SCHEDULE</p>
+          <h2>Heat sheets</h2>
+        </div>
+      </div>
 
-<tr>
-<td>Joseph West</td>
-<td>50m Butterfly</td>
-</tr>
+      <div id="heat-sheets-list" class="card-list">
+        <div class="empty-state">Heat sheets will appear here when uploaded and published.</div>
+      </div>
+    </section>
 
-<tr>
-<td>Joseph West</td>
-<td>50m Breaststroke</td>
-</tr>
-</table>
+    <p id="public-message" class="message" role="status"></p>
+  </main>
 
-</div>
+  <footer class="site-footer">
+    <p>Mini Meet Swimming Results</p>
+    <p>Results are subject to confirmation by meet officials.</p>
+  </footer>
 
-</div>
+  <!-- ADMIN LOGIN -->
+  <div id="login-modal" class="modal hidden">
+    <div class="modal-card">
+      <button class="modal-close" data-close="login-modal" type="button" aria-label="Close">×</button>
 
-<script>
+      <p class="eyebrow">RESTRICTED ACCESS</p>
+      <h2>Administrator login</h2>
+      <p class="muted">Sign in with your authorised administrator account.</p>
 
-let results =
-JSON.parse(localStorage.getItem("results") || "[]");
+      <form id="login-form">
+        <label for="login-email">Email address</label>
+        <input id="login-email" type="email" required autocomplete="username">
 
-function render(){
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" required autocomplete="current-password">
 
-let html="";
+        <button class="button button-primary button-full" type="submit">
+          Sign in
+        </button>
+      </form>
 
-results.forEach(r=>{
+      <p id="login-message" class="message" role="status"></p>
+    </div>
+  </div>
 
-html += `
-<tr>
-<td>${r.event}</td>
-<td>${r.swimmer}</td>
-<td>${r.time}</td>
-</tr>`;
-});
+  <!-- ADMIN DASHBOARD -->
+  <div id="admin-modal" class="modal hidden">
+    <div class="modal-card admin-card">
+      <div class="admin-heading">
+        <div>
+          <p class="eyebrow">CONTROL PANEL</p>
+          <h2>Meet administration</h2>
+        </div>
+        <button id="admin-logout" class="button button-light" type="button">
+          Log out
+        </button>
+      </div>
 
-document.getElementById("resultsTable").innerHTML=html;
-}
+      <button class="modal-close" data-close="admin-modal" type="button" aria-label="Close">×</button>
 
-function addResult(){
+      <p id="admin-message" class="message" role="status"></p>
 
-let result={
-event:document.getElementById("event").value,
-swimmer:document.getElementById("swimmer").value,
-time:document.getElementById("time").value
-};
+      <!-- MEET SETTINGS -->
+      <section class="admin-section">
+        <h3>Meet settings</h3>
 
-results.push(result);
+        <form id="meet-form">
+          <label for="meet-name-input">Meet name</label>
+          <input id="meet-name-input" type="text" required>
 
-localStorage.setItem(
-"results",
-JSON.stringify(results)
-);
+          <label for="meet-date-input">Meet date</label>
+          <input id="meet-date-input" type="date" required>
 
-render();
+          <label class="checkbox-label">
+            <input id="meet-published" type="checkbox">
+            Publish meet to the public
+          </label>
 
-document.getElementById("swimmer").value="";
-document.getElementById("time").value="";
-}
+          <button class="button button-primary" type="submit">
+            Save meet
+          </button>
+        </form>
+      </section>
 
-function searchSwimmer(){
+      <!-- ADD SWIMMER -->
+      <section class="admin-section">
+        <h3>Add swimmer</h3>
 
-let filter=
-document.getElementById("search")
-.value.toUpperCase();
+        <form id="swimmer-form">
+          <label for="swimmer-name-input">Full name</label>
+          <input id="swimmer-name-input" type="text" required>
 
-let rows=
-document.querySelectorAll(
-"#resultsTable tr"
-);
+          <label for="swimmer-age-input">Age group</label>
+          <input id="swimmer-age-input" type="text" placeholder="e.g. 15 years" required>
 
-rows.forEach(row=>{
+          <button class="button button-primary" type="submit">
+            Add swimmer
+          </button>
+        </form>
+      </section>
 
-row.style.display=
-row.textContent.toUpperCase()
-.includes(filter)
-? ""
-: "none";
+      <!-- ADD EVENT -->
+      <section class="admin-section">
+        <h3>Add event</h3>
 
-});
-}
+        <form id="event-form">
+          <label for="event-number-input">Event number</label>
+          <input id="event-number-input" type="number" min="1" required>
 
-render();
+          <label for="event-name-input">Event name</label>
+          <input id="event-name-input" type="text" placeholder="e.g. 50m Freestyle" required>
 
-</script>
+          <label for="event-distance-input">Distance (metres)</label>
+          <input id="event-distance-input" type="number" min="1" required>
+
+          <label for="event-stroke-input">Stroke</label>
+          <select id="event-stroke-input" required>
+            <option value="">Choose stroke</option>
+            <option value="Freestyle">Freestyle</option>
+            <option value="Backstroke">Backstroke</option>
+            <option value="Breaststroke">Breaststroke</option>
+            <option value="Butterfly">Butterfly</option>
+            <option value="Individual Medley">Individual Medley</option>
+          </select>
+
+          <button class="button button-primary" type="submit">
+            Add event
+          </button>
+        </form>
+      </section>
+
+      <!-- ADD ENTRY -->
+      <section class="admin-section">
+        <h3>Add swimmer to event</h3>
+
+        <form id="entry-form">
+          <label for="entry-swimmer-input">Swimmer</label>
+          <select id="entry-swimmer-input" required>
+            <option value="">Select swimmer</option>
+          </select>
+
+          <label for="entry-event-input">Event</label>
+          <select id="entry-event-input" required>
+            <option value="">Select event</option>
+          </select>
+
+          <label for="entry-heat-input">Heat number</label>
+          <input id="entry-heat-input" type="number" min="1" required>
+
+          <label for="entry-lane-input">Lane number</label>
+          <input id="entry-lane-input" type="number" min="1" required>
+
+          <label for="entry-time-input">Entry time (optional)</label>
+          <input id="entry-time-input" type="text" placeholder="e.g. 00:32.45">
+
+          <button class="button button-primary" type="submit">
+            Add entry
+          </button>
+        </form>
+      </section>
+
+      <!-- ENTER RESULTS -->
+      <section class="admin-section">
+        <h3>Enter race result</h3>
+
+        <form id="result-form">
+          <label for="result-entry-input">Swimmer's event entry</label>
+          <select id="result-entry-input" required>
+            <option value="">Select entry</option>
+          </select>
+
+          <label for="result-time-input">Race time</label>
+          <input id="result-time-input" type="text" placeholder="e.g. 00:32.45" required>
+
+          <label for="result-position-input">Position (optional)</label>
+          <input id="result-position-input" type="number" min="1">
+
+          <label class="checkbox-label">
+            <input id="result-published-input" type="checkbox">
+            Publish this result
+          </label>
+
+          <button class="button button-primary" type="submit">
+            Save result
+          </button>
+        </form>
+      </section>
+
+      <!-- UPLOAD HEAT SHEET -->
+      <section class="admin-section">
+        <h3>Upload heat sheet</h3>
+
+        <form id="heat-sheet-form">
+          <label for="heat-sheet-title-input">Document title</label>
+          <input id="heat-sheet-title-input" type="text" placeholder="e.g. Official heat sheets" required>
+
+          <label for="heat-sheet-file-input">Choose PDF, Excel or CSV file</label>
+          <input
+            id="heat-sheet-file-input"
+            type="file"
+            accept=".pdf,.xls,.xlsx,.csv"
+            required
+          >
+
+          <label class="checkbox-label">
+            <input id="heat-sheet-published-input" type="checkbox">
+            Publish this document
+          </label>
+
+          <button class="button button-primary" type="submit">
+            Upload heat sheet
+          </button>
+        </form>
+      </section>
+
+      <p class="admin-note">
+        Only publish swimmer information and results that the meet organiser
+        has authorised for public release.
+      </p>
+    </div>
+  </div>
 
 </body>
 </html>
